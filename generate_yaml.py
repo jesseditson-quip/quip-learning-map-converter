@@ -1,5 +1,35 @@
 #!/usr/bin/python
 
+"""
+INSTRUCTIONS TO RUN SCRIPT:
+https://salesforce.quip.com/8AOsA6o693UZ
+
+The following command runs the script for the quip doc 
+https://salesforce.quip.com/iViCA5ls1hGW:
+
+QUIP_TOKEN="VGJQQU1BRnBQUnk=|1651767250|TM2uirX08IEG6s5ZYnxrDvGspQxT7e9+M94i8mlF9Ho=" python generate_yaml.py iViCA5ls1hGW
+
+
+ACCOMPLISHED:
+Script reads in a learning map from a Quip doc and outputs a yaml file with the
+Quip doc title as the file name. The spaces and special characters from the Quip
+doc title are removed for the file name.
+
+LEFT TO DO:
+1. The code doesn't loop over all columns. Only the first column and its items
+are in the output.
+2. The order of the key:value pairs isn't correct. We can make it alphabetical
+or seemingly random. The `sort_keys=False` parameter doesn't do the trick. 
+3. The html > utf-8 > yaml parsers don't output multi-line descriptions correctly.
+The current code adds a `!!python/str` in front of the descriptions. 
+The format should be:
+    description: >-
+        This is a very long sentence
+        that spans several lines in the YAML
+        but which will be rendered as a string
+        with NO carriage returns.
+"""
+
 import json
 import os
 import re
@@ -10,7 +40,8 @@ from html.parser import HTMLParser
 
 """
 This script takes the html output of a Quip doc, and outputs a yaml file in
-the format of a learning map.
+the format of a learning map. The yaml output file name is the Quip doc 
+file name with the spaces and special characters removed.
 """
 
 # pass the doc ID as the first argument to the script
@@ -83,9 +114,10 @@ class QuipHTMLToYamlParser(HTMLParser):
         }
         self.current_tags = []
         self.state = "title"
-    
+
     def handle_starttag(self, tag, attrs):
         self.current_tags.append(tag)
+
         
         if tag == "ul" and (self.state == "column" or self.state == "item"):
             self.state = "item"
@@ -94,8 +126,10 @@ class QuipHTMLToYamlParser(HTMLParser):
             self.current_item = {}
             self.current_column["items"].append(self.current_item)
 
+
     def handle_endtag(self, tag):
         self.current_tags.pop()
+
 
     def handle_data(self, raw):
         data = raw.encode("utf-8")
@@ -106,12 +140,11 @@ class QuipHTMLToYamlParser(HTMLParser):
             self.defining_steps = False
             self.output["title"] = data
         if current_tag == "p" and self.state == "title":
-            self.output["description"] += data + "\n"
+            self.output["description"] += data
         if current_tag == "h2":
             self.state = "step"
             self.current_step = {
                 "navtitle": data,
-                "title": data
             }
             self.output["steps"].append(self.current_step)
         if current_tag == "blockquote" and self.state == "step":
@@ -119,7 +152,7 @@ class QuipHTMLToYamlParser(HTMLParser):
         if current_tag == "p" and self.state == "step":
             if not self.current_step.get("description", None):
                 self.current_step["description"] = ""
-            self.current_step["description"] += data + "\n"
+            self.current_step["description"] += data
         if current_tag == "h3" and self.state == "step":
             self.state = "column"
             if not self.current_step.get("columns", None):
@@ -150,6 +183,7 @@ def fetch_doc(threadId):
     data = json.loads(response.read())
     return data
 
+
 def get_token():
     token = os.environ.get("QUIP_TOKEN", None)
     if token:
@@ -171,15 +205,22 @@ def get_token():
     # just use the token from the first site we find.
     return str(config["accessToken"])
 
+
 def parse_document(doc):
     parser = QuipHTMLToYamlParser()
     parser.feed(doc["html"])
-    return yaml.dump(parser.output, default_flow_style=False)
+    return parser.output
+
 
 def main():
     doc_data = fetch_doc(doc_id)
-    yaml = parse_document(doc_data)
-    print(yaml)
+    output = parse_document(doc_data)    
+    file = open(re.sub(r'[^A-Za-z0-9]+', '', output["title"]) + ".yaml", 'w')
+    # file = open(output["title"].replace(" ", "_") + ".yaml", 'w')    
+    file.write(yaml.dump(output, sort_keys=False, default_flow_style=False))
+    file.close()
+
 
 if __name__ == "__main__":
     main()
+    
